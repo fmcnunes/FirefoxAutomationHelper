@@ -1,0 +1,16 @@
+{
+  "title": "Automation Helper",
+  "name": "firefoxautomationhelper",
+  "version": "0.0.1",
+  "description": "Provides information regarding browser network activity",
+  "main": "index.js",
+  "author": "Fernando Nunes",
+  "engines": {
+    "firefox": ">=38.0a1",
+    "fennec": ">=38.0a1"
+  },
+  "license": "MIT",
+  "keywords": [
+    "jetpack"
+  ]
+}
