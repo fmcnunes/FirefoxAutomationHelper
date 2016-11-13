@@ -1,0 +1,4 @@
+C:\Documentos\Git-Sources\FirefoxAutomationHelper\DotNetInterface\bin\Debug\FireFoxHelperLib.dll
+C:\Documentos\Git-Sources\FirefoxAutomationHelper\DotNetInterface\bin\Debug\FireFoxHelperLib.pdb
+C:\Documentos\Git-Sources\FirefoxAutomationHelper\DotNetInterface\obj\Debug\FireFoxHelperLib.dll
+C:\Documentos\Git-Sources\FirefoxAutomationHelper\DotNetInterface\obj\Debug\FireFoxHelperLib.pdb
