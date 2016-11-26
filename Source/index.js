@@ -34,7 +34,7 @@ var WebSiteDomainList = "mozilla.org,google.pt"
  *************************************************************************/
 function LogMessage(msg)
 {
-    console.error(msg);
+    /*console.error(msg);*/
 }
 
 /************************************************************************
