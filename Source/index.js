@@ -15,6 +15,8 @@ Cu.import("resource://gre/modules/Console.jsm");
 
 var gWebServerListener;
 
+var HttpRequests = new Array();
+
 var serverSocket;
 
 var gCounter = 0;
@@ -25,7 +27,14 @@ var gLastRequest = new Date();
 
 var gLastReset = new Date();
 
-var WebSiteDomainList = "mozilla.org,google.pt"
+var channelId = 0;
+
+var WebSiteDomainList = "webmon"
+
+var activityDistributor = Cc["@mozilla.org/network/http-activity-distributor;1"]
+                                    .getService(Ci.nsIHttpActivityDistributor);
+
+var nsIHttpActivityObserver = Ci.nsIHttpActivityObserver;
 
 /************************************************************************
  *
@@ -34,7 +43,7 @@ var WebSiteDomainList = "mozilla.org,google.pt"
  *************************************************************************/
 function LogMessage(msg)
 {
-    /*console.error(msg);*/
+    console.info(msg);
 }
 
 /************************************************************************
@@ -44,25 +53,59 @@ function LogMessage(msg)
  *************************************************************************/
 
 exports.main = function() {
-    LogMessage("FirefoxAutimationHelper loading");
+    LogMessage("FirefoxAutomationHelper loading");
 
     webServer.onLoad();
 
     httpRequestObserver.register();
+    
+    activityDistributor.addObserver(httpObserver);
 
-    LogMessage("FirefoxAutimationHelper up and running.");
+    LogMessage("FirefoxAutomationHelper up and running.");
 }
 
 exports.onUnload = function() {
-    LogMessage("FirefoxAutimationHelper unloading");
+    LogMessage("FirefoxAutomationHelper unloading");
 
     httpRequestObserver.unregister();
 
     webServer.onUnLoad();
 
-    LogMessage("FirefoxAutimationHelper unloaded.");
+    LogMessage("FirefoxAutomationHelper unloaded.");
 }
 
+/************************************************************************
+ *
+ * HTTP Request Observers 
+ *
+ ************************************************************************/
+ // Define a reference to the interfacevar nsIHttpActivityObserver = Components.interfaces.nsIHttpActivityObserver;
+
+var httpObserver =
+{
+    observeActivity: function(aHttpChannel, aActivityType, aActivitySubtype, aTimestamp, aExtraSizeData, aExtraStringData)
+    {
+        try
+        {
+            if (aActivityType == nsIHttpActivityObserver.ACTIVITY_TYPE_HTTP_TRANSACTION)
+            {
+                switch(aActivitySubtype)
+                {
+                    case nsIHttpActivityObserver.ACTIVITY_SUBTYPE_RESPONSE_HEADER:
+                    // received response header
+                    break;
+                    case nsIHttpActivityObserver.ACTIVITY_SUBTYPE_RESPONSE_COMPLETE:
+                    // received complete HTTP response
+                    break;
+                }
+            }
+      	}
+        catch (ex)
+        {
+            LogMessage("httpObserver::observeActivity(): Exception= " + ex);
+        }
+    }
+};
 /************************************************************************
  *
  * HTTP Request Observers 
@@ -72,23 +115,36 @@ exports.onUnload = function() {
 var httpRequestObserver = {
     observe: function(subject, topic, data) {
         subject.QueryInterface(Ci.nsIHttpChannel);
-        url = subject.URI.spec;
+        var url = subject.URI.spec;
+		
+		var httpChannel = subject.QueryInterface(Ci.nsIHttpChannel);
 
-        var domainList = WebSiteDomainList.split(',');
-        for (var i = 0; i < domainList.length; i++) {
-            if (url.indexOf(domainList[i]) !== -1) {
-                if (topic == "http-on-modify-request") {
+
+        if (IsTargetUrl(url))
+			{
+                if (topic == "http-on-modify-request")
+				{
+					if (httpChannel instanceof Ci.nsIWritablePropertyBag)
+						httpChannel.setProperty("myExtension-channelId", ++channelId);
+					
+					updateHttpRequest(httpChannel.getProperty("myExtension-channelId"), url, "http-on-examine-request");
+
                     gCounter++;
                     gCounterTotal++;
                     gLastRequest = new Date();
                     LogMessage("Request (" + gCounter + "): " + topic + " -> " + url);
                 } else {
+					
+					if (httpChannel instanceof Ci.nsIPropertyBag)
+						LogMessage("Channel: " + httpChannel.getProperty("myExtension-channelId"));
+
+					updateHttpRequest(httpChannel.getProperty("myExtension-channelId"), url, "http-on-examine-response");
+					
                     gCounter--;
                     gLastRequest = new Date();
                     LogMessage("Resposta (" + gCounter + "): " + topic + " -> " + url);
                 }
             }
-        }
     },
 
     get observerService() {
@@ -97,9 +153,12 @@ var httpRequestObserver = {
     },
 
     register: function() {
+		
+
         this.observerService.addObserver(this, "http-on-modify-request", false);
         this.observerService.addObserver(this, "http-on-examine-response", false);
-        this.observerService.addObserver(this, 'http-on-examine-cached-response', false);
+        this.observerService.addObserver(this, "http-on-examine-cached-response", false);
+        this.observerService.addObserver(this, 'http-on-examine-merged-response', false);
     },
 
     unregister: function() {
@@ -108,6 +167,158 @@ var httpRequestObserver = {
         this.observerService.removeObserver(this, "http-on-examine-cached-response");
     }
 };
+
+/************************************************************************
+ *
+ * IsTargetUrl
+ *
+ *************************************************************************/
+
+function IsTargetUrl(url)
+{
+	var domainList = WebSiteDomainList.split(',');
+	for (var i = 0; i < domainList.length; i++)
+	{
+        if (url.indexOf(domainList[i]) !== -1)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/*********************************************************
+*
+* HttpRequest Object
+*
+**********************************************************/
+
+// HttpFoxRequest
+function HttpRequestEvent(requestId, httpEvent, url)
+{
+	try 
+	{
+		this.requestId = requestId;
+		this.lastEvent = httpEvent;
+		this.url = url;
+	}
+	catch (ex)
+	{
+		LogMessage("HttpRequest::init(): Exception= " + ex);
+	}
+}
+	
+HttpRequestEvent.prototype.update = function(httpEvent)
+	{
+		this.lastEvent = httpEvent;		
+	}
+	
+/*********************************************************
+*
+* Requests
+*
+**********************************************************/
+
+
+function addHttpRequest(requestId, httpEvent, url)
+	{
+		try
+		{
+			var request = new HttpRequestEvent(requestId, httpEvent, url);
+			HttpRequests.push(request);
+		}
+		catch (ex)
+		{
+			LogMessage("HttpRequest::init(): Exception= " + ex);
+		}
+	}
+	
+function getHttpRequest(url, requestId)
+	{
+		try
+		{
+			for (var i = 0; i < HttpRequests.length; i++) 
+			{
+				//if (url == HttpRequests[i].url)
+                if(requestId == HttpRequests[i].requestId)
+				{
+					return i;
+				}
+			}
+		}
+		catch (ex)
+		{
+			LogMessage("HttpRequest::init(): Exception= " + ex);
+		}
+		// no match found
+		return -1;
+	}
+	
+    
+ function getPendingHttpRequest()
+ {
+     resp="";
+     
+     for (var i = 0; i < HttpRequests.length; i++) 
+		{
+	 	  if (HttpRequests[i].lastEvent == "http-on-examine-request")
+				{
+					resp = "," + HttpRequests[i].url;
+				}
+		}
+     
+     return resp;
+ }
+function countPendingHttpRequest()
+	{
+		var cnt = 0;
+		try
+		{
+			LogMessage("PendingHttpRequest....");
+			for (var i = 0; i < HttpRequests.length; i++) 
+			{
+				if (HttpRequests[i].lastEvent == "http-on-examine-request")
+				{
+					LogMessage("PendingHttpRequest (+) (" + i + "), " + HttpRequests[i].requestId + " , " + HttpRequests[i].url + " , " + HttpRequests[i].lastEvent);
+					cnt++;
+				}
+                else
+                   LogMessage("PendingHttpRequest (" + i + "), " + HttpRequests[i].requestId + " , " + HttpRequests[i].url + " , " + HttpRequests[i].lastEvent); 
+			}
+			LogMessage("PendingHttpRequest..,done cnt=" + cnt + " in " + HttpRequests.length );
+		}
+		catch (ex)
+		{
+			LogMessage("updateCount: Exception= " + ex);
+		}
+		// no match found
+		return cnt;
+	}
+	
+
+function updateHttpRequest(requestId, url, httpEvent)
+	{
+		try
+		{			
+			if (IsTargetUrl(url))
+			{
+		
+				LogMessage("updateHttpRequest, " + requestId + " , " + url + " , " + httpEvent);
+			
+				var index = getHttpRequest(url, requestId);
+		
+				if (index >= 0)
+					HttpRequests[index].update(httpEvent);
+				else
+					addHttpRequest(requestId, httpEvent, url);
+			}
+		}
+		catch (ex)
+		{
+			LogMessage("HttpRequest::init(): Exception= " + ex);
+		}
+	}	
+
 
 /************************************************************************
  *
@@ -137,8 +348,13 @@ var webServer = {
 
                     sin.init(streamInput);
 
-
-                    var resp = "{ \"Counter\": " + gCounter + ", \"CounterTotal\": " + gCounterTotal + ",\"LastEvent\": " + lastEvent + ",\"LastReset\": " + LastReset + ", \"Version\": 1, \"DomainList\": \"" + WebSiteDomainList + "\"}";
+					gCounter = countPendingHttpRequest();
+                    
+				
+                    var resp = "{ \"Counter\": " + gCounter + ", \"CounterTotal\": " + gCounterTotal + ",\"LastEvent\": " + lastEvent + ",\"LastReset\": " + LastReset + ", \"Version\": 2.2, \"DomainList\": \"" + WebSiteDomainList + "\", \"PendingRequests\": \"" + getPendingHttpRequest() + "\"}";
+                                     
+                    
+                    
                     var outputString = "HTTP/1.1 200 OK\r\nContent-Length: " + resp.length + "\r\nContent-Type: text/html\r\n\r\n" + resp;
 
                     LogMessage("> Send response: " + outputString);
@@ -178,6 +394,7 @@ var webServer = {
                         gCounterTotal = 0;
                         gLastRequest = new Date();
                         gLastReset = new Date();
+						HttpRequests = new Array();
                     } else
                         LogMessage("Match is null");
 
